@@ -30,12 +30,15 @@ func (w Workspace) Resolve(name string) (string, error) {
 		return "", errors.New("file path must stay inside workspace")
 	}
 	cleaned := filepath.Clean(name)
-	if cleaned == "." || strings.HasPrefix(cleaned, "..") {
+	if cleaned == "." || cleaned == ".." || strings.HasPrefix(cleaned, ".."+string(filepath.Separator)) {
 		return "", errors.New("file path must stay inside workspace")
 	}
 	path := filepath.Join(w.root, cleaned)
 	if !isWithin(w.root, path) {
 		return "", errors.New("file path must stay inside workspace")
+	}
+	if err := ensureNoSymlinkEscape(w.root, path); err != nil {
+		return "", err
 	}
 	return path, nil
 }
@@ -56,10 +59,51 @@ func (w Workspace) OutputPath(name string) (string, string, error) {
 	if err := ensureRealDirectory(filepath.Dir(path)); err != nil {
 		return "", "", err
 	}
+	if err := ensureWritableFilePath(path); err != nil {
+		return "", "", err
+	}
 	if w.publicBaseURL == "" {
 		return path, "", nil
 	}
 	return path, w.publicBaseURL + "/" + base, nil
+}
+
+func ensureNoSymlinkEscape(root, path string) error {
+	realRoot, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		return err
+	}
+	rel, err := filepath.Rel(root, path)
+	if err != nil {
+		return err
+	}
+	current := realRoot
+	for _, part := range strings.Split(rel, string(filepath.Separator)) {
+		if part == "" || part == "." {
+			continue
+		}
+		candidate := filepath.Join(current, part)
+		info, err := os.Lstat(candidate)
+		if os.IsNotExist(err) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			target, err := filepath.EvalSymlinks(candidate)
+			if err != nil {
+				return err
+			}
+			if !isWithin(realRoot, target) {
+				return errors.New("file path must stay inside workspace")
+			}
+			current = target
+			continue
+		}
+		current = candidate
+	}
+	return nil
 }
 
 func ensureRealDirectory(path string) error {
@@ -82,7 +126,30 @@ func ensureRealDirectory(path string) error {
 			return err
 		}
 	}
-	return os.Mkdir(path, 0o755)
+	if err := os.Mkdir(path, 0o755); err != nil {
+		if os.IsExist(err) {
+			return ensureRealDirectory(path)
+		}
+		return err
+	}
+	return nil
+}
+
+func ensureWritableFilePath(path string) error {
+	info, err := os.Lstat(path)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return errors.New("output file must not be a symlink")
+	}
+	if info.IsDir() {
+		return errors.New("output file path is a directory")
+	}
+	return nil
 }
 
 func isWithin(root, path string) bool {

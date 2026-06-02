@@ -29,6 +29,35 @@ func TestResolveRejectsTraversal(t *testing.T) {
 	}
 }
 
+func TestResolveAllowsDotDotPrefixFilename(t *testing.T) {
+	root := t.TempDir()
+	ws := New(root, "output", "")
+
+	path, err := ws.Resolve("..backup.xlsx")
+	if err != nil {
+		t.Fatalf("Resolve() rejected safe filename: %v", err)
+	}
+	if filepath.Base(path) != "..backup.xlsx" {
+		t.Fatalf("basename = %q", filepath.Base(path))
+	}
+}
+
+func TestResolveRejectsSymlinkEscape(t *testing.T) {
+	root := t.TempDir()
+	outside := t.TempDir()
+	if err := os.WriteFile(filepath.Join(outside, "secret.xlsx"), []byte("secret"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(root, "input")); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+	ws := New(root, "output", "")
+
+	if _, err := ws.Resolve("input/secret.xlsx"); err == nil {
+		t.Fatal("Resolve() accepted symlink escape")
+	}
+}
+
 func TestResolveRejectsAbsolutePath(t *testing.T) {
 	root := t.TempDir()
 	ws := New(root, "output", "")
@@ -61,6 +90,25 @@ func TestOutputPathRejectsIntermediateSymlinkedDirectory(t *testing.T) {
 
 	if _, _, err := ws.OutputPath("report.xlsx"); err == nil {
 		t.Fatal("OutputPath() accepted intermediate symlinked directory")
+	}
+}
+
+func TestOutputPathRejectsSymlinkedOutputFile(t *testing.T) {
+	root := t.TempDir()
+	outside := t.TempDir()
+	if err := os.Mkdir(filepath.Join(root, "output"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(outside, "target.xlsx"), []byte("target"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(outside, "target.xlsx"), filepath.Join(root, "output", "report.xlsx")); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+	ws := New(root, "output", "")
+
+	if _, _, err := ws.OutputPath("report.xlsx"); err == nil {
+		t.Fatal("OutputPath() accepted symlinked output file")
 	}
 }
 
