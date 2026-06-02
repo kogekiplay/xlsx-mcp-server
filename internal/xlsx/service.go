@@ -85,6 +85,35 @@ func (Service) ReadRange(path, sheet, cellRange string) ([][]string, error) {
 	return out, nil
 }
 
+func (Service) CreateWorkbook(outputPath, sheet string, rows [][]any) error {
+	if strings.TrimSpace(sheet) == "" {
+		sheet = "Sheet1"
+	}
+	if err := checkRowsSize(rows); err != nil {
+		return err
+	}
+	f := excelize.NewFile()
+	defer f.Close()
+	defaultSheet := f.GetSheetName(0)
+	if defaultSheet != sheet {
+		if err := f.SetSheetName(defaultSheet, sheet); err != nil {
+			return err
+		}
+	}
+	for r, row := range rows {
+		for c, value := range row {
+			cell, err := excelize.CoordinatesToCellName(c+1, r+1)
+			if err != nil {
+				return err
+			}
+			if err := f.SetCellValue(sheet, cell, value); err != nil {
+				return err
+			}
+		}
+	}
+	return f.SaveAs(outputPath)
+}
+
 func (Service) WriteCell(inputPath, outputPath, sheet, cell string, value any) error {
 	f, err := openWorkbook(inputPath)
 	if err != nil {
@@ -165,6 +194,23 @@ func splitRange(cellRange string) (string, string, error) {
 	}
 }
 
+func checkRowsSize(rows [][]any) error {
+	if len(rows) > maxReadRows {
+		return readSizeError()
+	}
+	cells := 0
+	for _, row := range rows {
+		if len(row) > maxReadColumns {
+			return readSizeError()
+		}
+		cells += len(row)
+		if cells > maxReadCells {
+			return readSizeError()
+		}
+	}
+	return nil
+}
+
 func checkReadSize(rows, columns int) error {
 	if rows > maxReadRows || columns > maxReadColumns || rows*columns > maxReadCells {
 		return readSizeError()
@@ -173,5 +219,5 @@ func checkReadSize(rows, columns int) error {
 }
 
 func readSizeError() error {
-	return fmt.Errorf("read range exceeds limit of %d rows, %d columns, or %d cells", maxReadRows, maxReadColumns, maxReadCells)
+	return fmt.Errorf("workbook data exceeds limit of %d rows, %d columns, or %d cells", maxReadRows, maxReadColumns, maxReadCells)
 }

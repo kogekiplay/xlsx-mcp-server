@@ -78,6 +78,86 @@ func TestHandlersHonorCanceledContext(t *testing.T) {
 	}
 }
 
+func TestOptionalRowsAcceptsPrimitiveCells(t *testing.T) {
+	rows, err := optionalRows(request(map[string]any{"rows": []any{
+		[]any{"日期", "销售额", "已确认"},
+		[]any{"2025-01-05", 314955, true},
+	}}), "rows")
+	if err != nil {
+		t.Fatalf("optionalRows() error = %v", err)
+	}
+	if len(rows) != 2 || rows[1][1] != 314955 || rows[1][2] != true {
+		t.Fatalf("rows = %#v", rows)
+	}
+}
+
+func TestOptionalRowsRejectsStructuredCells(t *testing.T) {
+	_, err := optionalRows(request(map[string]any{"rows": []any{[]any{map[string]any{"bad": true}}}}), "rows")
+	if err == nil || !strings.Contains(err.Error(), "rows must contain") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestCreateWorkbookHandler(t *testing.T) {
+	root := t.TempDir()
+	h := handlers{workspaceRoot: root, outputDir: "output", publicBaseURL: "https://example.com/xlsx-download"}
+
+	result, err := h.createWorkbook(context.Background(), request(map[string]any{
+		"sheet":  "销售数据分析",
+		"output": "sales.xlsx",
+		"rows": []any{
+			[]any{"日期", "产品名称", "销售数量", "销售额(元)"},
+			[]any{"2025-01-05", "iPhone 16", 45, 314955},
+		},
+	}))
+	if err != nil {
+		t.Fatalf("createWorkbook err = %v", err)
+	}
+	if result.IsError {
+		t.Fatalf("createWorkbook returned error result: %#v", result.Content)
+	}
+	f, err := excelize.OpenFile(filepath.Join(root, "output", "sales.xlsx"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	value, err := f.GetCellValue("销售数据分析", "B2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if value != "iPhone 16" {
+		t.Fatalf("B2 = %q", value)
+	}
+	text := resultText(t, result)
+	if !strings.Contains(text, "output/sales.xlsx") || strings.Contains(text, root) {
+		t.Fatalf("result text = %s", text)
+	}
+	if !strings.Contains(text, "https://example.com/xlsx-download/sales.xlsx") {
+		t.Fatalf("result text = %s", text)
+	}
+}
+
+func TestCreateWorkbookHandlerWithoutRows(t *testing.T) {
+	root := t.TempDir()
+	h := handlers{workspaceRoot: root, outputDir: "output"}
+
+	result, err := h.createWorkbook(context.Background(), request(map[string]any{"output": "blank.xlsx"}))
+	if err != nil {
+		t.Fatalf("createWorkbook err = %v", err)
+	}
+	if result.IsError {
+		t.Fatalf("createWorkbook returned error result: %#v", result.Content)
+	}
+	f, err := excelize.OpenFile(filepath.Join(root, "output", "blank.xlsx"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	if f.GetSheetName(0) != "Sheet1" {
+		t.Fatalf("sheet = %q", f.GetSheetName(0))
+	}
+}
+
 func TestInspectWorkbookHandler(t *testing.T) {
 	root := t.TempDir()
 	makeTestWorkbook(t, filepath.Join(root, "book.xlsx"))

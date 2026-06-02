@@ -4,6 +4,7 @@ A generic MCP server for reading, editing, and saving XLSX workbooks with AI cli
 
 ## Tools
 
+- `create_workbook` — create a new workbook from optional table rows.
 - `inspect_workbook` — list workbook sheets.
 - `read_range` — read all rows or a specific Excel range.
 - `write_cell` — write one cell and save a new workbook.

@@ -120,6 +120,52 @@ func TestReadAllRowsRejectsOversizedSheet(t *testing.T) {
 	}
 }
 
+func TestCreateWorkbook(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "created.xlsx")
+
+	svc := Service{}
+	err := svc.CreateWorkbook(path, "销售数据分析", [][]any{
+		{"日期", "产品名称", "销售数量", "销售额(元)"},
+		{"2025-01-05", "iPhone 16", 45, 314955},
+		{"合计", "", "", 314955},
+	})
+	if err != nil {
+		t.Fatalf("CreateWorkbook() error = %v", err)
+	}
+	f, err := excelize.OpenFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	value, err := f.GetCellValue("销售数据分析", "B2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if value != "iPhone 16" {
+		t.Fatalf("B2 = %q", value)
+	}
+	amount, err := f.GetCellValue("销售数据分析", "D3")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if amount != "314955" {
+		t.Fatalf("D3 = %q", amount)
+	}
+}
+
+func TestCreateWorkbookRejectsOversizedRows(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "created.xlsx")
+	rows := make([][]any, maxReadRows+1)
+	for i := range rows {
+		rows[i] = []any{i}
+	}
+
+	svc := Service{}
+	if err := svc.CreateWorkbook(path, "Sheet1", rows); err == nil || !strings.Contains(err.Error(), "exceeds limit") {
+		t.Fatalf("CreateWorkbook() err = %v", err)
+	}
+}
+
 func TestWriteCellAndSaveAs(t *testing.T) {
 	dir := t.TempDir()
 	input := filepath.Join(dir, "book.xlsx")
