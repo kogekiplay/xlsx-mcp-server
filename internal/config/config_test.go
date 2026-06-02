@@ -25,7 +25,7 @@ func TestLoadDefaults(t *testing.T) {
 func TestLoadEnvironmentOverrides(t *testing.T) {
 	t.Setenv("XLSX_WORKSPACE_ROOT", "/srv/xlsx")
 	t.Setenv("XLSX_OUTPUT_DIR", "generated")
-	t.Setenv("XLSX_PUBLIC_BASE_URL", "https://example.com/xlsx-download")
+	t.Setenv("XLSX_PUBLIC_BASE_URL", "https://example.com/xlsx-download///")
 
 	cfg, err := Load()
 	if err != nil {
