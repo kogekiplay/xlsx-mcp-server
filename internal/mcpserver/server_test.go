@@ -33,6 +33,27 @@ func TestRequireStringRejectsMissing(t *testing.T) {
 	}
 }
 
+func TestRequirePrimitiveAcceptsTypedValues(t *testing.T) {
+	for name, value := range map[string]any{"string": "ok", "number": 12.5, "bool": true} {
+		t.Run(name, func(t *testing.T) {
+			got, err := requirePrimitive(request(map[string]any{"value": value}), "value")
+			if err != nil {
+				t.Fatalf("requirePrimitive() error = %v", err)
+			}
+			if got != value {
+				t.Fatalf("got = %#v", got)
+			}
+		})
+	}
+}
+
+func TestRequirePrimitiveRejectsStructuredValue(t *testing.T) {
+	_, err := requirePrimitive(request(map[string]any{"value": map[string]any{"nested": true}}), "value")
+	if err == nil || !strings.Contains(err.Error(), "string, number, or boolean") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
 func TestHandlersRejectMissingFile(t *testing.T) {
 	h := handlers{workspaceRoot: t.TempDir(), outputDir: "output"}
 	result, err := h.inspectWorkbook(context.Background(), mcp.CallToolRequest{})
@@ -41,6 +62,19 @@ func TestHandlersRejectMissingFile(t *testing.T) {
 	}
 	if !result.IsError {
 		t.Fatal("inspectWorkbook accepted missing file")
+	}
+}
+
+func TestHandlersHonorCanceledContext(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	h := handlers{workspaceRoot: t.TempDir(), outputDir: "output"}
+	result, err := h.inspectWorkbook(ctx, request(map[string]any{"file": "book.xlsx"}))
+	if err != nil {
+		t.Fatalf("inspectWorkbook err = %v", err)
+	}
+	if !result.IsError || !strings.Contains(resultText(t, result), "context canceled") {
+		t.Fatalf("result = %#v", result)
 	}
 }
 
@@ -114,8 +148,44 @@ func TestWriteCellHandler(t *testing.T) {
 	if value != "Status" {
 		t.Fatalf("C1 = %q", value)
 	}
-	if !strings.Contains(resultText(t, result), "https://example.com/xlsx-download/report.xlsx") {
-		t.Fatalf("result text = %s", resultText(t, result))
+	text := resultText(t, result)
+	if !strings.Contains(text, "output/report.xlsx") || strings.Contains(text, root) {
+		t.Fatalf("result text = %s", text)
+	}
+	if !strings.Contains(text, "https://example.com/xlsx-download/report.xlsx") {
+		t.Fatalf("result text = %s", text)
+	}
+}
+
+func TestWriteCellHandlerAcceptsNumericValue(t *testing.T) {
+	root := t.TempDir()
+	makeTestWorkbook(t, filepath.Join(root, "book.xlsx"))
+	h := handlers{workspaceRoot: root, outputDir: "output"}
+
+	result, err := h.writeCell(context.Background(), request(map[string]any{
+		"file":   "book.xlsx",
+		"sheet":  "Sheet1",
+		"cell":   "C1",
+		"value":  12.5,
+		"output": "report.xlsx",
+	}))
+	if err != nil {
+		t.Fatalf("writeCell err = %v", err)
+	}
+	if result.IsError {
+		t.Fatalf("writeCell returned error result: %#v", result.Content)
+	}
+	f, err := excelize.OpenFile(filepath.Join(root, "output", "report.xlsx"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	value, err := f.GetCellValue("Sheet1", "C1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if value != "12.5" {
+		t.Fatalf("C1 = %q", value)
 	}
 }
 
@@ -142,6 +212,9 @@ func TestAddSheetHandler(t *testing.T) {
 	defer f.Close()
 	if index, err := f.GetSheetIndex("Summary"); err != nil || index < 0 {
 		t.Fatalf("Summary sheet missing, index=%d err=%v", index, err)
+	}
+	if !strings.Contains(resultText(t, result), "output/summary.xlsx") {
+		t.Fatalf("result text = %s", resultText(t, result))
 	}
 }
 

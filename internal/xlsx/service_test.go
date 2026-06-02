@@ -2,6 +2,7 @@ package xlsx
 
 import (
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/xuri/excelize/v2"
@@ -56,6 +57,31 @@ func TestReadRange(t *testing.T) {
 	}
 }
 
+func TestReadSingleCellRange(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "book.xlsx")
+	makeWorkbook(t, path)
+
+	svc := Service{}
+	values, err := svc.ReadRange(path, "Sheet1", "B2")
+	if err != nil {
+		t.Fatalf("ReadRange() error = %v", err)
+	}
+	if len(values) != 1 || len(values[0]) != 1 || values[0][0] != "42" {
+		t.Fatalf("values = %#v", values)
+	}
+}
+
+func TestReadRangeRejectsOversizedRange(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "book.xlsx")
+	makeWorkbook(t, path)
+
+	svc := Service{}
+	_, err := svc.ReadRange(path, "Sheet1", "A1:AZ200")
+	if err == nil || !strings.Contains(err.Error(), "exceeds limit") {
+		t.Fatalf("ReadRange() err = %v", err)
+	}
+}
+
 func TestReadAllRows(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "book.xlsx")
 	makeWorkbook(t, path)
@@ -67,6 +93,30 @@ func TestReadAllRows(t *testing.T) {
 	}
 	if len(values) != 2 || values[0][0] != "Name" || values[1][0] != "Alice" {
 		t.Fatalf("values = %#v", values)
+	}
+}
+
+func TestReadAllRowsRejectsOversizedSheet(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "book.xlsx")
+	f := excelize.NewFile()
+	defer f.Close()
+	for row := 1; row <= maxReadRows+1; row++ {
+		cell, err := excelize.CoordinatesToCellName(1, row)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := f.SetCellValue("Sheet1", cell, row); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := f.SaveAs(path); err != nil {
+		t.Fatal(err)
+	}
+
+	svc := Service{}
+	_, err := svc.ReadRange(path, "Sheet1", "")
+	if err == nil || !strings.Contains(err.Error(), "exceeds limit") {
+		t.Fatalf("ReadRange() err = %v", err)
 	}
 }
 

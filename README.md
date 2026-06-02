@@ -11,7 +11,7 @@ A generic MCP server for reading, editing, and saving XLSX workbooks with AI cli
 
 ## Safety model
 
-The server only reads and writes files inside `XLSX_WORKSPACE_ROOT`. Output files are saved under `XLSX_OUTPUT_DIR` within that workspace. Set `XLSX_PUBLIC_BASE_URL` when your host exposes output files through a static download route.
+The server only reads and writes files inside `XLSX_WORKSPACE_ROOT`. Output files are saved under `XLSX_OUTPUT_DIR` within that workspace and returned as workspace-relative paths for follow-up tool calls. Set `XLSX_PUBLIC_BASE_URL` when your host exposes output files through a static download route. The filesystem checks assume a trusted local workspace owner, not hostile local processes racing symlink changes.
 
 ## Environment
 
@@ -24,7 +24,8 @@ The server only reads and writes files inside `XLSX_WORKSPACE_ROOT`. Output file
 ## Build
 
 ```bash
-go build ./cmd/xlsx-mcp-server
+mkdir -p dist
+go build -o dist/xlsx-mcp-server ./cmd/xlsx-mcp-server
 ```
 
 ## Test

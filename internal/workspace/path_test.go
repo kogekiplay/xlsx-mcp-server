@@ -143,3 +143,48 @@ func TestOutputPathSanitizesName(t *testing.T) {
 		t.Fatalf("output basename = %q", filepath.Base(path))
 	}
 }
+
+func TestOutputFileReturnsWorkspaceRelativePath(t *testing.T) {
+	root := t.TempDir()
+	ws := New(root, "output", "https://example.com/xlsx-download")
+
+	_, rel, url, err := ws.OutputFile("report.xlsx")
+	if err != nil {
+		t.Fatalf("OutputFile() error = %v", err)
+	}
+	if rel != "output/report.xlsx" {
+		t.Fatalf("rel = %q", rel)
+	}
+	if url != "https://example.com/xlsx-download/report.xlsx" {
+		t.Fatalf("url = %q", url)
+	}
+}
+
+func TestOutputFileAvoidsExistingFileCollision(t *testing.T) {
+	root := t.TempDir()
+	outputDir := filepath.Join(root, "output")
+	if err := os.Mkdir(outputDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(outputDir, "workbook.xlsx"), []byte("existing"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	ws := New(root, "output", "")
+
+	path, rel, _, err := ws.OutputFile("销售.xlsx")
+	if err != nil {
+		t.Fatalf("OutputFile() error = %v", err)
+	}
+	if filepath.Base(path) != "workbook-2.xlsx" || rel != "output/workbook-2.xlsx" {
+		t.Fatalf("path=%q rel=%q", path, rel)
+	}
+}
+
+func TestOutputFileRejectsWorkspaceRootOutputDirectory(t *testing.T) {
+	root := t.TempDir()
+	ws := New(root, ".", "")
+
+	if _, _, _, err := ws.OutputFile("report.xlsx"); err == nil {
+		t.Fatal("OutputFile() accepted workspace root as output directory")
+	}
+}

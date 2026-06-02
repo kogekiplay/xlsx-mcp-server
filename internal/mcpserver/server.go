@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 
 	"github.com/kogekiplay/xlsx-mcp-server/internal/workspace"
 	"github.com/kogekiplay/xlsx-mcp-server/internal/xlsx"
@@ -35,7 +36,7 @@ func New(opts Options) *server.MCPServer {
 		mcp.WithDescription("Read a sheet range"),
 		mcp.WithString("file", mcp.Required(), mcp.Description("Workspace-relative XLSX file path")),
 		mcp.WithString("sheet", mcp.Required(), mcp.Description("Worksheet name")),
-		mcp.WithString("range", mcp.Description("Excel range such as A1:D20; omit for all rows")),
+		mcp.WithString("range", mcp.Description("Excel range such as A1:D20 or C3; omit for bounded all-row read")),
 	), h.readRange)
 	s.AddTool(mcp.NewTool(
 		"write_cell",
@@ -43,7 +44,7 @@ func New(opts Options) *server.MCPServer {
 		mcp.WithString("file", mcp.Required(), mcp.Description("Workspace-relative XLSX file path")),
 		mcp.WithString("sheet", mcp.Required(), mcp.Description("Worksheet name")),
 		mcp.WithString("cell", mcp.Required(), mcp.Description("Cell address such as C1")),
-		mcp.WithString("value", mcp.Required(), mcp.Description("Value to write")),
+		mcp.WithAny("value", mcp.Required(), mcp.Description("String, number, or boolean value to write")),
 		mcp.WithString("output", mcp.Required(), mcp.Description("Output file name")),
 	), h.writeCell)
 	s.AddTool(mcp.NewTool(
@@ -67,6 +68,9 @@ func (h handlers) workspace() workspace.Workspace {
 }
 
 func (h handlers) inspectWorkbook(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	if result := contextResult(ctx); result != nil {
+		return result, nil
+	}
 	file, err := requireString(request, "file")
 	if err != nil {
 		return mcp.NewToolResultError(err.Error()), nil
@@ -74,6 +78,9 @@ func (h handlers) inspectWorkbook(ctx context.Context, request mcp.CallToolReque
 	path, err := h.workspace().Resolve(file)
 	if err != nil {
 		return mcp.NewToolResultError(err.Error()), nil
+	}
+	if result := contextResult(ctx); result != nil {
+		return result, nil
 	}
 	info, err := (xlsx.Service{}).Inspect(path)
 	if err != nil {
@@ -83,6 +90,9 @@ func (h handlers) inspectWorkbook(ctx context.Context, request mcp.CallToolReque
 }
 
 func (h handlers) readRange(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	if result := contextResult(ctx); result != nil {
+		return result, nil
+	}
 	file, err := requireString(request, "file")
 	if err != nil {
 		return mcp.NewToolResultError(err.Error()), nil
@@ -99,6 +109,9 @@ func (h handlers) readRange(ctx context.Context, request mcp.CallToolRequest) (*
 	if err != nil {
 		return mcp.NewToolResultError(err.Error()), nil
 	}
+	if result := contextResult(ctx); result != nil {
+		return result, nil
+	}
 	values, err := (xlsx.Service{}).ReadRange(path, sheet, cellRange)
 	if err != nil {
 		return mcp.NewToolResultError(err.Error()), nil
@@ -107,6 +120,9 @@ func (h handlers) readRange(ctx context.Context, request mcp.CallToolRequest) (*
 }
 
 func (h handlers) writeCell(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	if result := contextResult(ctx); result != nil {
+		return result, nil
+	}
 	file, err := requireString(request, "file")
 	if err != nil {
 		return mcp.NewToolResultError(err.Error()), nil
@@ -119,7 +135,7 @@ func (h handlers) writeCell(ctx context.Context, request mcp.CallToolRequest) (*
 	if err != nil {
 		return mcp.NewToolResultError(err.Error()), nil
 	}
-	value, err := requireString(request, "value")
+	value, err := requirePrimitive(request, "value")
 	if err != nil {
 		return mcp.NewToolResultError(err.Error()), nil
 	}
@@ -132,17 +148,29 @@ func (h handlers) writeCell(ctx context.Context, request mcp.CallToolRequest) (*
 	if err != nil {
 		return mcp.NewToolResultError(err.Error()), nil
 	}
-	outputPath, url, err := ws.OutputPath(output)
+	outputPath, outputFile, url, err := ws.OutputFile(output)
 	if err != nil {
 		return mcp.NewToolResultError(err.Error()), nil
 	}
+	if result := contextResult(ctx); result != nil {
+		_ = os.Remove(outputPath)
+		return result, nil
+	}
 	if err := (xlsx.Service{}).WriteCell(inputPath, outputPath, sheet, cell, value); err != nil {
+		_ = os.Remove(outputPath)
 		return mcp.NewToolResultError(err.Error()), nil
 	}
-	return textResult(map[string]string{"file": outputPath, "download_url": url}), nil
+	if result := contextResult(ctx); result != nil {
+		_ = os.Remove(outputPath)
+		return result, nil
+	}
+	return textResult(map[string]string{"file": outputFile, "download_url": url}), nil
 }
 
 func (h handlers) addSheet(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	if result := contextResult(ctx); result != nil {
+		return result, nil
+	}
 	file, err := requireString(request, "file")
 	if err != nil {
 		return mcp.NewToolResultError(err.Error()), nil
@@ -160,14 +188,23 @@ func (h handlers) addSheet(ctx context.Context, request mcp.CallToolRequest) (*m
 	if err != nil {
 		return mcp.NewToolResultError(err.Error()), nil
 	}
-	outputPath, url, err := ws.OutputPath(output)
+	outputPath, outputFile, url, err := ws.OutputFile(output)
 	if err != nil {
 		return mcp.NewToolResultError(err.Error()), nil
 	}
+	if result := contextResult(ctx); result != nil {
+		_ = os.Remove(outputPath)
+		return result, nil
+	}
 	if err := (xlsx.Service{}).AddSheet(inputPath, outputPath, sheet); err != nil {
+		_ = os.Remove(outputPath)
 		return mcp.NewToolResultError(err.Error()), nil
 	}
-	return textResult(map[string]string{"file": outputPath, "download_url": url}), nil
+	if result := contextResult(ctx); result != nil {
+		_ = os.Remove(outputPath)
+		return result, nil
+	}
+	return textResult(map[string]string{"file": outputFile, "download_url": url}), nil
 }
 
 func requireString(request mcp.CallToolRequest, name string) (string, error) {
@@ -176,6 +213,28 @@ func requireString(request mcp.CallToolRequest, name string) (string, error) {
 		return "", fmt.Errorf("%s is required", name)
 	}
 	return value, nil
+}
+
+func requirePrimitive(request mcp.CallToolRequest, name string) (any, error) {
+	value, ok := request.GetArguments()[name]
+	if !ok || value == nil {
+		return nil, fmt.Errorf("%s is required", name)
+	}
+	switch v := value.(type) {
+	case string, bool, float32, float64, int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64:
+		return v, nil
+	case json.Number:
+		if i, err := v.Int64(); err == nil {
+			return i, nil
+		}
+		f, err := v.Float64()
+		if err != nil {
+			return nil, errors.New(name + " must be a string, number, or boolean")
+		}
+		return f, nil
+	default:
+		return nil, errors.New(name + " must be a string, number, or boolean")
+	}
 }
 
 func optionalString(request mcp.CallToolRequest, name string) (string, error) {
@@ -188,6 +247,13 @@ func optionalString(request mcp.CallToolRequest, name string) (string, error) {
 		return "", errors.New(name + " must be a string")
 	}
 	return str, nil
+}
+
+func contextResult(ctx context.Context) *mcp.CallToolResult {
+	if err := ctx.Err(); err != nil {
+		return mcp.NewToolResultError(err.Error())
+	}
+	return nil
 }
 
 func textResult(value any) *mcp.CallToolResult {

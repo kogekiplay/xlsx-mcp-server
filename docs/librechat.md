@@ -29,4 +29,4 @@ Expose only the workspace output directory through your reverse proxy or static 
 1. Put an XLSX file into the configured workspace.
 2. Ask the AI client to inspect or edit the workbook with `xlsx-editor`.
 3. The server writes generated workbooks to the output directory.
-4. The AI response includes `download_url` when `XLSX_PUBLIC_BASE_URL` is configured.
+4. The AI response includes `file` for follow-up edits and `download_url` when `XLSX_PUBLIC_BASE_URL` is configured.

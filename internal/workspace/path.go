@@ -2,6 +2,7 @@ package workspace
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -16,7 +17,7 @@ type Workspace struct {
 func New(root, outputDir, publicBaseURL string) Workspace {
 	return Workspace{
 		root:          filepath.Clean(root),
-		outputDir:     strings.Trim(outputDir, "/"),
+		outputDir:     strings.TrimSpace(outputDir),
 		publicBaseURL: strings.TrimRight(publicBaseURL, "/"),
 	}
 }
@@ -44,6 +45,11 @@ func (w Workspace) Resolve(name string) (string, error) {
 }
 
 func (w Workspace) OutputPath(name string) (string, string, error) {
+	path, _, url, err := w.OutputFile(name)
+	return path, url, err
+}
+
+func (w Workspace) OutputFile(name string) (string, string, string, error) {
 	base := sanitizeBaseName(name)
 	if base == "" {
 		base = "workbook"
@@ -51,21 +57,49 @@ func (w Workspace) OutputPath(name string) (string, string, error) {
 	if strings.ToLower(filepath.Ext(base)) != ".xlsx" {
 		base += ".xlsx"
 	}
-	rel := filepath.Join(w.outputDir, base)
-	path, err := w.Resolve(rel)
+	dir, err := w.outputDirectory()
 	if err != nil {
-		return "", "", err
+		return "", "", "", err
 	}
-	if err := ensureRealDirectory(filepath.Dir(path)); err != nil {
-		return "", "", err
+	for attempt := 0; attempt < 1000; attempt++ {
+		candidate := suffixName(base, attempt)
+		rel := filepath.Join(dir, candidate)
+		path, err := w.Resolve(rel)
+		if err != nil {
+			return "", "", "", err
+		}
+		if err := ensureRealDirectory(filepath.Dir(path)); err != nil {
+			return "", "", "", err
+		}
+		reserved, err := reserveOutputPath(path)
+		if err != nil {
+			return "", "", "", err
+		}
+		if !reserved {
+			continue
+		}
+		url := ""
+		if w.publicBaseURL != "" {
+			url = w.publicBaseURL + "/" + candidate
+		}
+		return path, filepath.ToSlash(rel), url, nil
 	}
-	if err := ensureWritableFilePath(path); err != nil {
-		return "", "", err
+	return "", "", "", fmt.Errorf("no available output name for %q", base)
+}
+
+func (w Workspace) outputDirectory() (string, error) {
+	dir := strings.TrimSpace(w.outputDir)
+	if dir == "" {
+		dir = "output"
 	}
-	if w.publicBaseURL == "" {
-		return path, "", nil
+	if filepath.IsAbs(dir) {
+		return "", errors.New("output directory must stay inside workspace")
 	}
-	return path, w.publicBaseURL + "/" + base, nil
+	cleaned := filepath.Clean(dir)
+	if cleaned == "." || cleaned == ".." || strings.HasPrefix(cleaned, ".."+string(filepath.Separator)) {
+		return "", errors.New("output directory must be a workspace subdirectory")
+	}
+	return cleaned, nil
 }
 
 func ensureNoSymlinkEscape(root, path string) error {
@@ -135,21 +169,28 @@ func ensureRealDirectory(path string) error {
 	return nil
 }
 
-func ensureWritableFilePath(path string) error {
+func reserveOutputPath(path string) (bool, error) {
 	info, err := os.Lstat(path)
-	if os.IsNotExist(err) {
-		return nil
+	if err == nil {
+		if info.Mode()&os.ModeSymlink != 0 {
+			return false, errors.New("output file must not be a symlink")
+		}
+		if info.IsDir() {
+			return false, errors.New("output file path is a directory")
+		}
+		return false, nil
+	}
+	if !os.IsNotExist(err) {
+		return false, err
+	}
+	file, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE|os.O_EXCL, 0o600)
+	if os.IsExist(err) {
+		return false, nil
 	}
 	if err != nil {
-		return err
+		return false, err
 	}
-	if info.Mode()&os.ModeSymlink != 0 {
-		return errors.New("output file must not be a symlink")
-	}
-	if info.IsDir() {
-		return errors.New("output file path is a directory")
-	}
-	return nil
+	return true, file.Close()
 }
 
 func isWithin(root, path string) bool {
@@ -159,12 +200,30 @@ func isWithin(root, path string) bool {
 
 func sanitizeBaseName(name string) string {
 	base := filepath.Base(strings.TrimSpace(name))
-	base = strings.ReplaceAll(base, " ", "-")
+	ext := filepath.Ext(base)
+	stem := strings.TrimSuffix(base, ext)
+	stem = strings.ReplaceAll(stem, " ", "-")
 	var out strings.Builder
-	for _, r := range base {
+	for _, r := range stem {
 		if r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '-' || r == '_' || r == '.' {
 			out.WriteRune(r)
 		}
 	}
-	return strings.Trim(out.String(), ".-")
+	cleaned := strings.Trim(out.String(), ".-")
+	if cleaned == "" {
+		return ""
+	}
+	if strings.EqualFold(ext, ".xlsx") {
+		return cleaned + ".xlsx"
+	}
+	return cleaned
+}
+
+func suffixName(name string, attempt int) string {
+	if attempt == 0 {
+		return name
+	}
+	ext := filepath.Ext(name)
+	stem := strings.TrimSuffix(name, ext)
+	return fmt.Sprintf("%s-%d%s", stem, attempt+1, ext)
 }
