@@ -1,3 +1,10 @@
+.DS_Store
+/dist/
+/bin/
+/coverage.out
+*.test
+*.tmp
+*.xlsx.tmp
+/workspace/
 docs/superpowers/plans/
-
 .worktrees/
