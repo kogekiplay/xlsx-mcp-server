@@ -76,7 +76,13 @@ func ensureRealDirectory(path string) error {
 	if !os.IsNotExist(err) {
 		return err
 	}
-	return os.MkdirAll(path, 0o755)
+	parent := filepath.Dir(path)
+	if parent != path {
+		if err := ensureRealDirectory(parent); err != nil {
+			return err
+		}
+	}
+	return os.Mkdir(path, 0o755)
 }
 
 func isWithin(root, path string) bool {

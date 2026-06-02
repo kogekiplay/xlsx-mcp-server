@@ -51,6 +51,19 @@ func TestOutputPathRejectsSymlinkedOutputDirectory(t *testing.T) {
 	}
 }
 
+func TestOutputPathRejectsIntermediateSymlinkedDirectory(t *testing.T) {
+	root := t.TempDir()
+	outside := t.TempDir()
+	if err := os.Symlink(outside, filepath.Join(root, "output")); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+	ws := New(root, "output/reports", "")
+
+	if _, _, err := ws.OutputPath("report.xlsx"); err == nil {
+		t.Fatal("OutputPath() accepted intermediate symlinked directory")
+	}
+}
+
 func TestOutputPathCreatesXLSXName(t *testing.T) {
 	root := t.TempDir()
 	ws := New(root, "output", "https://example.com/xlsx-download")
