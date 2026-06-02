@@ -29,6 +29,28 @@ func TestResolveRejectsTraversal(t *testing.T) {
 	}
 }
 
+func TestResolveRejectsAbsolutePath(t *testing.T) {
+	root := t.TempDir()
+	ws := New(root, "output", "")
+
+	if _, err := ws.Resolve("/private/secret.xlsx"); err == nil {
+		t.Fatal("Resolve() accepted absolute path")
+	}
+}
+
+func TestOutputPathRejectsSymlinkedOutputDirectory(t *testing.T) {
+	root := t.TempDir()
+	outside := t.TempDir()
+	if err := os.Symlink(outside, filepath.Join(root, "output")); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+	ws := New(root, "output", "")
+
+	if _, _, err := ws.OutputPath("report.xlsx"); err == nil {
+		t.Fatal("OutputPath() accepted symlinked output directory")
+	}
+}
+
 func TestOutputPathCreatesXLSXName(t *testing.T) {
 	root := t.TempDir()
 	ws := New(root, "output", "https://example.com/xlsx-download")

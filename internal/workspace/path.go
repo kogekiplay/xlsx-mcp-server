@@ -22,11 +22,15 @@ func New(root, outputDir, publicBaseURL string) Workspace {
 }
 
 func (w Workspace) Resolve(name string) (string, error) {
-	if strings.TrimSpace(name) == "" {
+	name = strings.TrimSpace(name)
+	if name == "" {
 		return "", errors.New("file name is required")
 	}
-	cleaned := filepath.Clean(strings.TrimPrefix(name, "/"))
-	if cleaned == "." || strings.HasPrefix(cleaned, "..") || filepath.IsAbs(cleaned) {
+	if filepath.IsAbs(name) {
+		return "", errors.New("file path must stay inside workspace")
+	}
+	cleaned := filepath.Clean(name)
+	if cleaned == "." || strings.HasPrefix(cleaned, "..") {
 		return "", errors.New("file path must stay inside workspace")
 	}
 	path := filepath.Join(w.root, cleaned)
@@ -49,13 +53,30 @@ func (w Workspace) OutputPath(name string) (string, string, error) {
 	if err != nil {
 		return "", "", err
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	if err := ensureRealDirectory(filepath.Dir(path)); err != nil {
 		return "", "", err
 	}
 	if w.publicBaseURL == "" {
 		return path, "", nil
 	}
 	return path, w.publicBaseURL + "/" + base, nil
+}
+
+func ensureRealDirectory(path string) error {
+	info, err := os.Lstat(path)
+	if err == nil {
+		if info.Mode()&os.ModeSymlink != 0 {
+			return errors.New("output directory must not be a symlink")
+		}
+		if !info.IsDir() {
+			return errors.New("output path parent is not a directory")
+		}
+		return nil
+	}
+	if !os.IsNotExist(err) {
+		return err
+	}
+	return os.MkdirAll(path, 0o755)
 }
 
 func isWithin(root, path string) bool {
